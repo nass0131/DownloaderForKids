@@ -97,12 +97,30 @@ class MainActivity : AppCompatActivity() {
         btnUpdate = findViewById(R.id.updateButton)
         txtStatus = findViewById(R.id.statusTextView)
 
+        val sharedPref = getSharedPreferences("DownloaderPrefs", Context.MODE_PRIVATE)
+        val savedUriString = sharedPref.getString("save_uri", null)
+        if (savedUriString != null) {
+            try {
+                val uri = Uri.parse(savedUriString)
+                saveUri = uri
+                val docFile = DocumentFile.fromTreeUri(this, uri)
+                locationTextView.text = "저장위치: ${docFile?.name}"
+            } catch (e: Exception) {
+                // Ignore if URI is invalid
+            }
+        }
+
         dirPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
                 saveUri = uri
                 contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 val docFile = DocumentFile.fromTreeUri(this, uri)
                 locationTextView.text = "저장위치: ${docFile?.name}"
+
+                with(sharedPref.edit()) {
+                    putString("save_uri", uri.toString())
+                    apply()
+                }
             }
         }
 

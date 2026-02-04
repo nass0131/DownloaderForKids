@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="modern_blue_start">#4facfe</color>
+    <color name="modern_blue_end">#00f2fe</color>
+    <color name="modern_purple_start">#667eea</color>
+    <color name="modern_purple_end">#764ba2</color>
+
+    <!-- Adaptive Background Color -->
+    <color name="main_background">#FFFFFFFF</color> <!-- White for Light Mode -->
+    <color name="main_text_color">#FF000000</color> <!-- Black text for Light Mode -->
+</resources>

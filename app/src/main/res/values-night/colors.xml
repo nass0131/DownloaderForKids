@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Adaptive Background Color -->
+    <color name="main_background">#FF000000</color> <!-- Black for Dark Mode -->
+    <color name="main_text_color">#FFFFFFFF</color> <!-- White text for Dark Mode -->
+</resources>

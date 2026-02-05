@@ -73,7 +73,13 @@ class DownloadService : Service() {
                 if (!tempDir.exists()) tempDir.mkdirs()
 
                 val request = YoutubeDLRequest(url)
-                request.addOption("-f", "$videoId+$audioId")
+                
+                if (videoId == "none") {
+                    request.addOption("-f", audioId)
+                } else {
+                    request.addOption("-f", "$videoId+$audioId")
+                }
+                
                 request.addOption("-o", "${tempDir.absolutePath}/%(title)s.%(ext)s")
                 request.addOption("--force-overwrites")
 
@@ -85,7 +91,7 @@ class DownloadService : Service() {
                     val intent = Intent(ACTION_DOWNLOAD_PROGRESS).apply {
                         putExtra(EXTRA_PROGRESS, progress.toInt())
                         putExtra(EXTRA_STATUS_MESSAGE, "다운로드 중... $progressText")
-                        setPackage(packageName) // 이 부분이 중요합니다
+                        setPackage(packageName)
                     }
                     sendBroadcast(intent)
                 }
@@ -96,10 +102,12 @@ class DownloadService : Service() {
 
                 // 파일 저장 로직
                 val targetDir = DocumentFile.fromTreeUri(applicationContext, saveUri)!!
+                val mimeType = if (fileName.endsWith(".m4a") || fileName.endsWith(".mp3") || fileName.endsWith(".webm") && videoId == "none") "audio/*" else "video/mp4"
+
                 val destFile = targetDir.findFile(fileName)?.let {
                     it.delete()
-                    targetDir.createFile("video/mp4", fileName)
-                } ?: targetDir.createFile("video/mp4", fileName)
+                    targetDir.createFile(mimeType, fileName)
+                } ?: targetDir.createFile(mimeType, fileName)
 
                 if (destFile == null) throw IOException("저장 실패")
 

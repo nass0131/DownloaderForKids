@@ -248,7 +248,9 @@ class MainActivity : AppCompatActivity() {
         val spinnerVideo = dialogView.findViewById<Spinner>(R.id.spinnerVideo)
         val spinnerAudio = dialogView.findViewById<Spinner>(R.id.spinnerAudio)
 
-        val videoItems = videos.map {
+        val videoItems = mutableListOf<FormatItem>()
+        videoItems.add(FormatItem("none", "None", "None", "비디오 없음 (오디오만)", "N/A"))
+        videoItems.addAll(videos.map {
             FormatItem(
                 formatId = it.formatId ?: "",
                 container = it.ext ?: "mp4",
@@ -256,7 +258,7 @@ class MainActivity : AppCompatActivity() {
                 resolution = "${it.width}x${it.height}",
                 fileSize = formatFileSize(it.fileSize)
             )
-        }
+        })
 
         val audioItems = audios.map {
             FormatItem(

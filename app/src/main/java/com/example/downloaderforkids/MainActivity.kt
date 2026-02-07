@@ -273,6 +273,24 @@ class MainActivity : AppCompatActivity() {
         spinnerVideo.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, videoItems)
         spinnerAudio.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, audioItems)
 
+        val sharedPref = getSharedPreferences("DownloaderPrefs", Context.MODE_PRIVATE)
+        val lastVideoId = sharedPref.getString("last_video_id", null)
+        val lastAudioId = sharedPref.getString("last_audio_id", null)
+
+        if (lastVideoId != null) {
+            val videoIndex = videoItems.indexOfFirst { it.formatId == lastVideoId }
+            if (videoIndex != -1) {
+                spinnerVideo.setSelection(videoIndex)
+            }
+        }
+
+        if (lastAudioId != null) {
+            val audioIndex = audioItems.indexOfFirst { it.formatId == lastAudioId }
+            if (audioIndex != -1) {
+                spinnerAudio.setSelection(audioIndex)
+            }
+        }
+
         AlertDialog.Builder(this)
             .setTitle("다운로드 옵션 선택")
             .setView(dialogView)
@@ -281,6 +299,11 @@ class MainActivity : AppCompatActivity() {
                 val selectedAudio = spinnerAudio.selectedItem as? FormatItem
 
                 if (selectedVideo != null && selectedAudio != null) {
+                    with(sharedPref.edit()) {
+                        putString("last_video_id", selectedVideo.formatId)
+                        putString("last_audio_id", selectedAudio.formatId)
+                        apply()
+                    }
                     startDownloadService(url, selectedVideo.formatId, selectedAudio.formatId)
                 }
             }

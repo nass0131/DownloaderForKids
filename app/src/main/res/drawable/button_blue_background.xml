@@ -5,17 +5,12 @@
         <shape android:shape="rectangle">
             <!-- 대각선 그라데이션 (약간의 투명도 추가) -->
             <gradient
-                android:startColor="#CC00c6ff"
-                android:endColor="#CC0072ff"
+                android:startColor="@color/modern_blue_start"
+                android:endColor="@color/modern_blue_end"
                 android:angle="45" />
 
             <!-- 둥근 모서리 (완전한 타원형) -->
             <corners android:radius="40dp" />
-
-            <!-- 유리 느낌을 위한 반투명 흰색 테두리 -->
-            <stroke
-                android:width="1.5dp"
-                android:color="#99FFFFFF" />
         </shape>
     </item>
 </ripple>

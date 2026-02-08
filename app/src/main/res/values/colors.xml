@@ -6,6 +6,8 @@
     <color name="modern_blue_end">#00f2fe</color>
     <color name="modern_purple_start">#667eea</color>
     <color name="modern_purple_end">#764ba2</color>
+    <color name="modern_green_start">#0ba360</color>
+    <color name="modern_green_end">#3cba92</color>
 
     <!-- Adaptive Background Color -->
     <color name="main_background">#FFFFFFFF</color> <!-- White for Light Mode -->

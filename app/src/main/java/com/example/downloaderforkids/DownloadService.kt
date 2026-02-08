@@ -1,5 +1,6 @@
 package com.example.downloaderforkids
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -21,12 +22,12 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 class DownloadService : Service() {
 
     companion object {
         const val CHANNEL_ID = "DownloadChannel"
-        const val NOTIFICATION_ID = 1
         const val EXTRA_URL = "extra_url"
         const val EXTRA_VIDEO_ID = "extra_video_id"
         const val EXTRA_AUDIO_ID = "extra_audio_id"
@@ -38,6 +39,9 @@ class DownloadService : Service() {
         const val EXTRA_PROGRESS = "extra_progress"
         const val EXTRA_STATUS_MESSAGE = "extra_status_message"
     }
+
+    private val activeDownloads = AtomicInteger(0)
+    private val notificationIdCounter = AtomicInteger(100)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -54,18 +58,28 @@ class DownloadService : Service() {
 
         if (url != null && videoId != null && audioId != null && saveUriString != null) {
             val saveUri = Uri.parse(saveUriString)
-            startForeground(NOTIFICATION_ID, createNotification("다운로드 준비 중...", 0, true))
-            startDownload(url, videoId, audioId, saveUri)
+            val notificationId = notificationIdCounter.incrementAndGet()
+            
+            // Start foreground with the new notification to ensure service stays alive
+            // We use the unique ID so each download gets its own notification slot
+            val notification = createNotification(getString(R.string.download_preparing), 0, true)
+            startForeground(notificationId, notification)
+            
+            activeDownloads.incrementAndGet()
+            startDownload(url, videoId, audioId, saveUri, notificationId)
         } else {
-            stopSelf()
+            // Only stop if no downloads are active
+            if (activeDownloads.get() == 0) {
+                stopSelf()
+            }
         }
 
         return START_NOT_STICKY
     }
 
-    private fun startDownload(url: String, videoId: String, audioId: String, saveUri: Uri) {
+    private fun startDownload(url: String, videoId: String, audioId: String, saveUri: Uri, notificationId: Int) {
         CoroutineScope(Dispatchers.IO).launch {
-            val tempDirName = "temp_dl_${System.currentTimeMillis()}"
+            val tempDirName = "temp_dl_${System.currentTimeMillis()}_$notificationId"
             val tempDir = File(externalCacheDir, tempDirName)
             var fileName = "video.mp4"
 
@@ -84,23 +98,21 @@ class DownloadService : Service() {
                 request.addOption("--force-overwrites")
 
                 YoutubeDL.getInstance().execute(request) { progress, eta, _ ->
-                    val progressText = "$progress% (남은 시간: $eta 초)"
-                    updateNotification("다운로드 중... $progressText", progress.toInt(), true)
+                    val progressText = getString(R.string.download_progress, "$progress% (ETA: $eta s)")
+                    updateNotification(notificationId, progressText, progress.toInt(), true)
                     
-                    // Broadcast Progress (패키지명 명시)
                     val intent = Intent(ACTION_DOWNLOAD_PROGRESS).apply {
                         putExtra(EXTRA_PROGRESS, progress.toInt())
-                        putExtra(EXTRA_STATUS_MESSAGE, "다운로드 중... $progressText")
+                        putExtra(EXTRA_STATUS_MESSAGE, progressText)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
                 }
 
                 val downloadedFile = tempDir.listFiles()?.firstOrNull()
-                    ?: throw IOException("파일 생성 실패")
+                    ?: throw IOException(getString(R.string.file_creation_fail))
                 fileName = downloadedFile.name
 
-                // 파일 저장 로직
                 val targetDir = DocumentFile.fromTreeUri(applicationContext, saveUri)!!
                 val mimeType = if (fileName.endsWith(".m4a") || fileName.endsWith(".mp3") || fileName.endsWith(".webm") && videoId == "none") "audio/*" else "video/mp4"
 
@@ -109,7 +121,7 @@ class DownloadService : Service() {
                     targetDir.createFile(mimeType, fileName)
                 } ?: targetDir.createFile(mimeType, fileName)
 
-                if (destFile == null) throw IOException("저장 실패")
+                if (destFile == null) throw IOException(getString(R.string.save_fail))
 
                 contentResolver.openOutputStream(destFile.uri)?.use { output ->
                     FileInputStream(downloadedFile).use { input ->
@@ -118,11 +130,10 @@ class DownloadService : Service() {
                 }
 
                 withContext(Dispatchers.Main) {
-                    showCompletionNotification("다운로드 완료", "$fileName 저장됨")
+                    showCompletionNotification(notificationId, getString(R.string.download_complete_title), getString(R.string.download_complete_content, fileName))
                     
-                    // Broadcast Completion (패키지명 명시)
                     val intent = Intent(ACTION_DOWNLOAD_COMPLETE).apply {
-                        putExtra(EXTRA_STATUS_MESSAGE, "완료! ($fileName)")
+                        putExtra(EXTRA_STATUS_MESSAGE, getString(R.string.download_success, fileName))
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -131,19 +142,22 @@ class DownloadService : Service() {
             } catch (e: Exception) {
                 Log.e("DownloadService", "Error", e)
                 withContext(Dispatchers.Main) {
-                    showCompletionNotification("다운로드 실패", e.message ?: "알 수 없는 오류")
+                    showCompletionNotification(notificationId, getString(R.string.download_fail_title), e.message ?: getString(R.string.unknown_error))
                     
-                    // Broadcast Failure (패키지명 명시)
                     val intent = Intent(ACTION_DOWNLOAD_COMPLETE).apply {
-                        putExtra(EXTRA_STATUS_MESSAGE, "에러: ${e.message}")
+                        putExtra(EXTRA_STATUS_MESSAGE, getString(R.string.error_prefix, e.message))
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
                 }
             } finally {
                 tempDir.deleteRecursively()
-                stopForeground(STOP_FOREGROUND_DETACH)
-                stopSelf()
+                
+                val remaining = activeDownloads.decrementAndGet()
+                if (remaining == 0) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                    stopSelf()
+                }
             }
         }
     }
@@ -152,7 +166,7 @@ class DownloadService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Video Downloads",
+                getString(R.string.download_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(NotificationManager::class.java)
@@ -160,38 +174,38 @@ class DownloadService : Service() {
         }
     }
 
-    private fun createNotification(content: String, progress: Int, ongoing: Boolean): android.app.Notification {
+    private fun createNotification(content: String, progress: Int, ongoing: Boolean): Notification {
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("비디오 다운로더")
+            .setContentTitle(getString(R.string.notification_title))
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setProgress(100, progress, false)
             .setContentIntent(pendingIntent)
             .setOngoing(ongoing)
-            .setOnlyAlertOnce(true) // 알림 소리 반복 방지
+            .setOnlyAlertOnce(true)
             .build()
     }
 
-    private fun updateNotification(content: String, progress: Int, ongoing: Boolean) {
+    private fun updateNotification(notificationId: Int, content: String, progress: Int, ongoing: Boolean) {
         val notification = createNotification(content, progress, ongoing)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(notificationId, notification)
     }
 
-    private fun showCompletionNotification(title: String, content: String) {
+    private fun showCompletionNotification(notificationId: Int, title: String, content: String) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setAutoCancel(true) // 터치 시 사라짐
+            .setAutoCancel(true)
             .build()
         
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID + 1, notification) // 진행 중 알림과 다른 ID 사용
+        manager.notify(notificationId, notification)
     }
 }

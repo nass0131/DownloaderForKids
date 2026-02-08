@@ -57,20 +57,10 @@
         app:autoSizeTextType="uniform"
         app:autoSizeMaxTextSize="22sp" />
 
-    <Button
-        android:id="@+id/updateButton"
-        android:layout_width="match_parent"
-        android:layout_height="80dp"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/button_modern_background"
-        app:backgroundTint="@null"
-        android:elevation="6dp"
-        android:stateListAnimator="@null"
-        android:text="라이브러리 업데이트"
-        android:textColor="@android:color/white"
-        android:textStyle="bold"
-        app:autoSizeTextType="uniform"
-        app:autoSizeMaxTextSize="22sp" />
+
+
+
+
 
     <TextView
         android:id="@+id/statusTextView"

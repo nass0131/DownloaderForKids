@@ -9,28 +9,19 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.LayoutInflater
 import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.EditText
 import android.widget.Spinner
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.example.downloaderforkids.databinding.ActivityMainBinding
 import com.yausername.youtubedl_android.mapper.VideoFormat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class FormatItem(
     val formatId: String,
@@ -46,34 +37,27 @@ data class FormatItem(
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var binding: ActivityMainBinding
+    private val viewModel: MainViewModel by viewModels()
+    
     private var saveUri: Uri? = null
     private lateinit var dirPickerLauncher: ActivityResultLauncher<Uri?>
     private lateinit var requestPermissionLauncher: ActivityResultLauncher<String>
 
-    private lateinit var urlInput: EditText
-    private lateinit var selectLocationButton: Button
-    private lateinit var locationTextView: TextView
-    private lateinit var btnDownload: Button
-    private lateinit var btnUpdate: Button
-    private lateinit var txtStatus: TextView
-
-    // Broadcast Receiver 정의
+    // Broadcast Receiver Definition
     private val downloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
 
             when (intent.action) {
                 DownloadService.ACTION_DOWNLOAD_PROGRESS -> {
-                    val message = intent.getStringExtra(DownloadService.EXTRA_STATUS_MESSAGE)
-                    // val progress = intent.getIntExtra(DownloadService.EXTRA_PROGRESS, 0) // 필요 시 사용
-                    txtStatus.text = message
-                    btnDownload.isEnabled = false // 다운로드 중 버튼 비활성화 유지
+                    val message = intent.getStringExtra(DownloadService.EXTRA_STATUS_MESSAGE) ?: "다운로드 중..."
+                    viewModel.updateDownloadStatus(message, true)
                 }
                 DownloadService.ACTION_DOWNLOAD_COMPLETE -> {
-                    val message = intent.getStringExtra(DownloadService.EXTRA_STATUS_MESSAGE)
-                    txtStatus.text = message
-                    btnDownload.isEnabled = true // 완료 시 버튼 활성화
-                    urlInput.text.clear()
+                    val message = intent.getStringExtra(DownloadService.EXTRA_STATUS_MESSAGE) ?: "완료"
+                    viewModel.updateDownloadStatus(message, false)
+                    binding.urlEditText.text.clear()
                 }
             }
         }
@@ -81,22 +65,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        try {
-            YoutubeDL.getInstance().init(applicationContext)
-            FFmpeg.getInstance().init(applicationContext)
-        } catch (e: Exception) {
-            Toast.makeText(this, "초기화 실패", Toast.LENGTH_SHORT).show()
-        }
+        setupStateRestoration()
+        setupLaunchers()
+        setupListeners()
+        setupObservers()
+        
+        handleSharedIntent(intent)
+        checkNotificationPermission()
+    }
 
-        urlInput = findViewById(R.id.urlEditText)
-        selectLocationButton = findViewById(R.id.selectLocationButton)
-        locationTextView = findViewById(R.id.locationTextView)
-        btnDownload = findViewById(R.id.downloadButton)
-        btnUpdate = findViewById(R.id.updateButton)
-        txtStatus = findViewById(R.id.statusTextView)
-
+    private fun setupStateRestoration() {
         val sharedPref = getSharedPreferences("DownloaderPrefs", Context.MODE_PRIVATE)
         val savedUriString = sharedPref.getString("save_uri", null)
         if (savedUriString != null) {
@@ -104,19 +85,22 @@ class MainActivity : AppCompatActivity() {
                 val uri = Uri.parse(savedUriString)
                 saveUri = uri
                 val docFile = DocumentFile.fromTreeUri(this, uri)
-                locationTextView.text = "저장위치: ${docFile?.name}"
+                binding.locationTextView.text = "저장위치: ${docFile?.name}"
             } catch (e: Exception) {
                 // Ignore if URI is invalid
             }
         }
+    }
 
+    private fun setupLaunchers() {
         dirPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
                 saveUri = uri
                 contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 val docFile = DocumentFile.fromTreeUri(this, uri)
-                locationTextView.text = "저장위치: ${docFile?.name}"
+                binding.locationTextView.text = "저장위치: ${docFile?.name}"
 
+                val sharedPref = getSharedPreferences("DownloaderPrefs", Context.MODE_PRIVATE)
                 with(sharedPref.edit()) {
                     putString("save_uri", uri.toString())
                     apply()
@@ -131,15 +115,79 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "알림 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
             }
         }
+    }
 
-        setupListeners()
-        handleSharedIntent(intent)
-        checkNotificationPermission()
+    private fun setupListeners() {
+        binding.selectLocationButton.setOnClickListener { dirPickerLauncher.launch(null) }
+
+        binding.downloadButton.setOnClickListener {
+            if (saveUri == null) {
+                Toast.makeText(this, "저장 위치를 먼저 선택하세요.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val url = binding.urlEditText.text.toString()
+            viewModel.fetchFormats(url)
+        }
+
+        // binding.updateButton.setOnClickListener { viewModel.updateLibrary() } // Removed
+    }
+    
+    private fun setupObservers() {
+        viewModel.isUpdating.observe(this) { isUpdating ->
+            if (isUpdating) {
+                binding.statusTextView.text = "라이브러리 업데이트 중..."
+                binding.downloadButton.isEnabled = false
+                binding.selectLocationButton.isEnabled = false
+                binding.urlEditText.isEnabled = false
+            } else {
+                binding.statusTextView.text = "대기 중..."
+                binding.downloadButton.isEnabled = true
+                binding.selectLocationButton.isEnabled = true
+                binding.urlEditText.isEnabled = true
+            }
+        }
+
+        viewModel.uiState.observe(this) { state ->
+            when (state) {
+                is UiState.Loading -> {
+                    binding.statusTextView.text = "포맷 목록 분석 중..."
+                    binding.downloadButton.isEnabled = false
+                }
+                is UiState.Success -> {
+                    binding.statusTextView.text = "옵션을 선택하세요."
+                    binding.downloadButton.isEnabled = true
+                    showSelectionDialog(binding.urlEditText.text.toString(), state.videos, state.audios)
+                    viewModel.resetState() // Reset to avoid showing dialog again on config change immediately
+                }
+                is UiState.Error -> {
+                    binding.statusTextView.text = state.message
+                    binding.downloadButton.isEnabled = true
+                }
+                is UiState.Idle -> {
+                    // Do nothing or clear status
+                }
+            }
+        }
+        
+        viewModel.toastMessage.observe(this) { message ->
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            // Resetting toast message in VM might be needed if we don't want to show it again on rotation
+            // But LiveData emits last value. 
+            // Better to use SingleLiveEvent or just ignore for now as it's not critical.
+        }
+
+        viewModel.statusMessage.observe(this) { message ->
+            binding.statusTextView.text = message
+        }
+
+        viewModel.isDownloading.observe(this) { isDownloading ->
+            binding.downloadButton.isEnabled = !isDownloading
+            // binding.updateButton.isEnabled = !isDownloading // Removed
+        }
     }
 
     override fun onStart() {
         super.onStart()
-        // Broadcast Receiver 등록
         val filter = IntentFilter().apply {
             addAction(DownloadService.ACTION_DOWNLOAD_PROGRESS)
             addAction(DownloadService.ACTION_DOWNLOAD_COMPLETE)
@@ -149,11 +197,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Broadcast Receiver 해제
         try {
             unregisterReceiver(downloadReceiver)
         } catch (e: IllegalArgumentException) {
-            // 이미 해제된 경우 무시
+            // Ignored
         }
     }
 
@@ -169,9 +216,9 @@ class MainActivity : AppCompatActivity() {
             if (sharedText != null) {
                 val extractedUrl = extractUrl(sharedText)
                 if (extractedUrl != null) {
-                    urlInput.setText(extractedUrl)
+                    binding.urlEditText.setText(extractedUrl)
                 } else {
-                    urlInput.setText(sharedText)
+                    binding.urlEditText.setText(sharedText)
                 }
             }
         }
@@ -183,62 +230,10 @@ class MainActivity : AppCompatActivity() {
         return matchResult?.value
     }
 
-    private fun setupListeners() {
-        selectLocationButton.setOnClickListener { dirPickerLauncher.launch(null) }
-
-        btnDownload.setOnClickListener {
-            if (saveUri == null) {
-                Toast.makeText(this, "저장 위치를 먼저 선택하세요.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val url = urlInput.text.toString()
-            if (url.isBlank()) return@setOnClickListener
-
-            fetchFormatsAndShowDialog(url)
-        }
-
-        btnUpdate.setOnClickListener { updateLibrary() }
-    }
-
     private fun checkNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
-
-    private fun fetchFormatsAndShowDialog(url: String) {
-        txtStatus.text = "포맷 목록 분석 중..."
-        btnDownload.isEnabled = false
-
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val videoInfo = YoutubeDL.getInstance().getInfo(YoutubeDLRequest(url))
-                val formats = videoInfo.formats
-
-                if (formats == null) throw Exception("포맷 정보를 찾을 수 없습니다.")
-
-                val videoList = formats.filter {
-                    it.vcodec != "none" && (it.acodec == "none" || it.acodec == null)
-                }.sortedByDescending { it.height }
-
-                val audioList = formats.filter {
-                    it.acodec != "none" && (it.vcodec == "none" || it.vcodec == null)
-                }.sortedByDescending { it.fileSize }
-
-                withContext(Dispatchers.Main) {
-                    showSelectionDialog(url, videoList, audioList)
-                    txtStatus.text = "옵션을 선택하세요."
-                    btnDownload.isEnabled = true
-                }
-
-            } catch (e: Exception) {
-                Log.e("YTDL", "분석 실패", e)
-                withContext(Dispatchers.Main) {
-                    txtStatus.text = "분석 실패: ${e.message}"
-                    btnDownload.isEnabled = true
-                }
             }
         }
     }
@@ -324,30 +319,8 @@ class MainActivity : AppCompatActivity() {
             startService(intent)
         }
         Toast.makeText(this, "백그라운드에서 다운로드가 시작됩니다.", Toast.LENGTH_SHORT).show()
-        urlInput.text.clear()
-        // txtStatus.text는 BroadcastReceiver가 업데이트하므로 여기서는 간단히 설정하거나 생략 가능
-        btnDownload.isEnabled = false // 중복 클릭 방지
-    }
-
-    private fun updateLibrary() {
-        Toast.makeText(this, "업데이트 확인 중...", Toast.LENGTH_SHORT).show()
-        btnUpdate.isEnabled = false
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                YoutubeDL.getInstance().updateYoutubeDL(applicationContext)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(applicationContext, "라이브러리 업데이트 완료", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(applicationContext, "업데이트 실패", Toast.LENGTH_SHORT).show()
-                }
-            } finally {
-                withContext(Dispatchers.Main) {
-                    btnUpdate.isEnabled = true
-                }
-            }
-        }
+        binding.urlEditText.text.clear()
+        viewModel.updateDownloadStatus("다운로드 시작됨...", true) // Optimistic update
     }
 
     private fun formatFileSize(size: Long): String {

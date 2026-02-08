@@ -88,4 +88,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _statusMessage.value = message
         _isDownloading.value = isDownloading
     }
+
+    private val _updateInfo = MutableLiveData<AppUpdateInfo?>()
+    val updateInfo: LiveData<AppUpdateInfo?> = _updateInfo
+
+    private val _versionStatus = MutableLiveData<String>()
+    val versionStatus: LiveData<String> = _versionStatus
+
+    fun checkAppUpdate(currentVersion: String) {
+        viewModelScope.launch {
+            val updater = AppUpdater(getApplication())
+            when (val result = updater.checkForUpdate(currentVersion)) {
+                is AppUpdater.UpdateResult.Available -> {
+                    _updateInfo.value = result.updateInfo
+                    _versionStatus.value = "현재 버전: $currentVersion / 최신 버전: ${result.updateInfo.version} (업데이트 가능)"
+                }
+                is AppUpdater.UpdateResult.NoUpdate -> {
+                    _versionStatus.value = "현재 버전: $currentVersion (최신 버전입니다)"
+                }
+                is AppUpdater.UpdateResult.Error -> {
+                    _versionStatus.value = "현재 버전: $currentVersion (업데이트 확인 실패)"
+                }
+            }
+        }
+    }
 }

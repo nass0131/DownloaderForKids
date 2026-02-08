@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.example.downloaderforkids.databinding.ActivityMainBinding
 import com.yausername.youtubedl_android.mapper.VideoFormat
+import androidx.lifecycle.lifecycleScope
+
 
 data class FormatItem(
     val formatId: String,
@@ -75,6 +77,9 @@ class MainActivity : AppCompatActivity() {
         
         handleSharedIntent(intent)
         checkNotificationPermission()
+        
+        val currentVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+        viewModel.checkAppUpdate(currentVersion)
     }
 
     private fun setupStateRestoration() {
@@ -183,6 +188,54 @@ class MainActivity : AppCompatActivity() {
         viewModel.isDownloading.observe(this) { isDownloading ->
             binding.downloadButton.isEnabled = !isDownloading
             // binding.updateButton.isEnabled = !isDownloading // Removed
+        }
+
+        viewModel.updateInfo.observe(this) { updateInfo ->
+            if (updateInfo != null) {
+                showUpdateDialog(updateInfo)
+            }
+        }
+
+        viewModel.versionStatus.observe(this) { status ->
+            binding.versionTextView.text = status
+        }
+    }
+    
+    private fun showUpdateDialog(updateInfo: AppUpdateInfo) {
+        AlertDialog.Builder(this)
+            .setTitle("새로운 버전 업데이트")
+            .setMessage("새로운 버전(${updateInfo.version})이 있습니다.\n\n${updateInfo.releaseNotes}")
+            .setPositiveButton("업데이트") { _, _ ->
+                startUpdate(updateInfo.downloadUrl)
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun startUpdate(downloadUrl: String) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_progress, null)
+        val progressText = dialogView.findViewById<android.widget.TextView>(R.id.progressText)
+        
+        val progressDialog = AlertDialog.Builder(this)
+            .setTitle("다운로드 중...")
+            .setView(dialogView)
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        val updater = AppUpdater(this)
+        
+        lifecycleScope.launchWhenStarted {
+           val file = updater.downloadApk(downloadUrl) { progress ->
+               progressText.text = "다운로드 중... $progress%"
+           }
+           progressDialog.dismiss()
+           
+           if (file != null) {
+               updater.installApk(file)
+           } else {
+               Toast.makeText(this@MainActivity, "다운로드 실패", Toast.LENGTH_SHORT).show()
+           }
         }
     }
 

@@ -227,7 +227,9 @@ class MainActivity : AppCompatActivity() {
         
         lifecycleScope.launchWhenStarted {
            val file = updater.downloadApk(downloadUrl) { progress ->
-               progressText.text = "다운로드 중... $progress%"
+               runOnUiThread {
+                   progressText.text = "다운로드 중... $progress%"
+               }
            }
            progressDialog.dismiss()
            

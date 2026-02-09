@@ -22,8 +22,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableLiveData<UiState>(UiState.Idle)
     val uiState: LiveData<UiState> = _uiState
 
-    private val _toastMessage = MutableLiveData<String>()
-    val toastMessage: LiveData<String> = _toastMessage
+    private val _toastMessage = MutableLiveData<String?>()
+    val toastMessage: LiveData<String?> = _toastMessage
+
+    fun onToastShown() {
+        _toastMessage.value = null
+    }
 
     fun fetchFormats(url: String) {
         if (url.isBlank()) return

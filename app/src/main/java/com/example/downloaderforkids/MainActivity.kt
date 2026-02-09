@@ -175,10 +175,10 @@ class MainActivity : AppCompatActivity() {
         }
         
         viewModel.toastMessage.observe(this) { message ->
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            // Resetting toast message in VM might be needed if we don't want to show it again on rotation
-            // But LiveData emits last value. 
-            // Better to use SingleLiveEvent or just ignore for now as it's not critical.
+            message?.let {
+                Toast.makeText(this, it, Toast.LENGTH_SHORT).show()
+                viewModel.onToastShown()
+            }
         }
 
         viewModel.statusMessage.observe(this) { message ->
